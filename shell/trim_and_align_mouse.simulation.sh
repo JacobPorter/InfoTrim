@@ -22,7 +22,7 @@ cutadapt -q 10 -o $2.cutadapt.fastq $1
 #Dust is a measure of sequence complexity between 0 and 100.  A high score indicates a low complexity.
 ~/Reaper/reaper -i $1 -basename $2.reaper -geom no-bc -3pa "" -tabu "" -dust-suffix 90 -qqq-check 50/15 --nozip 
 
-~/BisPin/shell/align_mouse.simulation.sh $2.reaper.clean $2.reaper.out $3 $4
+~/BisPin/shell/align_mouse.simulation.sh $2.reaper.lane.clean $2.reaper.out $3 $4
 
 /home/jsporter/sickle/sickle se -f $1 -t sanger -o $2.sickle.fastq
 

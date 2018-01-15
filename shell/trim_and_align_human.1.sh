@@ -19,16 +19,16 @@ cutadapt -q 10 -o $2.cutadapt.fastq $1
 ~/BisPin/shell/align_human.sh $2.erne_1.fastq $2.erne.out $3 
 
 #Dust is a measure of sequence complexity between 0 and 100.  A high score indicates a low complexity.
-~/Reaper/reaper -i $1 -basename $2.reaper -geom no-bc -3pa "" -tabu "" -dust-suffix 90 -qqq-check 50/15 --nozip 
+#~/Reaper/reaper -i $1 -basename $2.reaper -geom no-bc -3pa "" -tabu "" -dust-suffix 90 -qqq-check 50/15 --nozip 
 
-mv $2.reaper.lane.clean $2.reaper.fastq
+#mv $2.reaper.lane.clean $2.reaper.fastq
 
-~/BisPin/shell/align_human.sh $2.reaper.fastq $2.reaper.out $3
+#~/BisPin/shell/align_human.sh $2.reaper.fastq $2.reaper.out $3
 
-/home/jsporter/sickle/sickle se -f $1 -t sanger -o $2.sickle.fastq
+#/home/jsporter/sickle/sickle se -f $1 -t sanger -o $2.sickle.fastq
 
-~/BisPin/shell/align_human.sh $2.sickle.fastq $2.sickle.out $3
+#~/BisPin/shell/align_human.sh $2.sickle.fastq $2.sickle.out $3
 
-~/BisPin/InfoTrim.py -p $3  $1  1> $2.infotrim.fastq 2> $2.infotrim.info 
+#~/BisPin/InfoTrim.py -p $3  $1  1> $2.infotrim.fastq 2> $2.infotrim.info 
 
-~/BisPin/shell/align_human.sh $2.infotrim.fastq $2.infotrim.out $3
+#~/BisPin/shell/align_human.sh $2.infotrim.fastq $2.infotrim.out $3
