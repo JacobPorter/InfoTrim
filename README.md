@@ -25,27 +25,37 @@ Usage: InfoTrim.py [options] <FASTQ reads file location>
 
 Options:
   --version             show program's version number and exit
+  
   -h, --help            show this help message and exit
+  
   -p PROCESSES, --processes=PROCESSES
                         Number of processes to use. [default: 1]
+                        
   -o OUTPUT, --output=OUTPUT
                         The file name for the output file. [default: stdout]
+                        
   -s PHRED, --phred=PHRED
                         The tradeoff value for the phred score. [default: 0.1]
+                        
   -r ENTROPY, --entropy=ENTROPY
                         The tradeoff value for the entropy feature. [default:
                         0.4]
+                        
   -m MIN_LENGTH, --min_length=MIN_LENGTH
                         The minimum length target. [default: 25]
+                        
   -t START_WEIGHT, --start_weight=START_WEIGHT
                         The weight for the exponential model for the starting
                         position of the read for the non-linear option.  If
                         set to 0, it will not be used. [default: 0]
+                        
   -n, --non_linear      Use the non-linear approach to search for a substring
                         that maximizes the score.
+                        
   -a ASCII_OFFSET, --ascii_offset=ASCII_OFFSET
                         The offset value for the ascii encoding of phred
                         scores. [default: 33]
+                        
   -v, --verbose         Run in verbose.  The score for each read is printed to
                         stderr.
 
