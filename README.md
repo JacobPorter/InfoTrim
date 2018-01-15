@@ -1,3 +1,5 @@
+# InfoTrim
+
 InfoTrim is a DNA read quality trimmer based on the Trimmomatic maximum information criterion model.  It adds an entropy term.
 
 If cited, use 
