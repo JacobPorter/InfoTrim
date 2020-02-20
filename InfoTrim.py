@@ -2,7 +2,7 @@
 import datetime
 import math
 import multiprocessing
-import optparse
+import argparse
 import os
 import sys
 
@@ -24,14 +24,15 @@ This read trimmer is intended for Illumina style short DNA reads encoded as A, C
 with phred scores.  If the format is incorrect, consider converting to fastq format.
 Multiprocessing is implemented with a producer / consumer design pattern using synchronized queues.
 
+Will probably not do, but maybe will do:
 TODO: add a term or support for trimming out regions with homopolymer runs?
-TODO: compare to other read trimmers, analyze on read data
 TODO: Is the entropy only option redundant? Probably
 TODO: Is balanced redundant? Probably
 TODO: Should the scaling of the terms be changed because their contribution to the score will differ.
 TODO: Should an exponential or logistic model or no model be used for biasing the non-linear version towards the start of the read.
 TODO: Automatic phred encoding detection.
-TODO: could the quadratic time algorithm be designed for only linear time? with a heuristic or with optimality?
+TODO: Automatic fasta/fastq file detection.
+TODO: Is the linear algorithm that trims both ends the same as the dynamic algorithm?
 """
 
 
@@ -42,6 +43,7 @@ def calculate_read_trim_position_linear(read,
                                         gamma,
                                         offset,
                                         balanced=False,
+                                        file_type='fastq',
                                         entropyOnly=False):
     """
     This implements the linear version of the read trimmer.
@@ -54,7 +56,10 @@ def calculate_read_trim_position_linear(read,
     """
     num_terms = 3.0
     sequence = read[1]
-    phred = read[2]
+    if file_type != 'fastq':
+        phred = "H" * len(sequence)
+    else:
+        phred = read[2]
     total_length = len(read[1])
     max_position = 0
     max_score = float("-inf")
@@ -106,6 +111,7 @@ def calculate_read_trim_position_dynamic(read,
                                          gamma,
                                          offset,
                                          balanced=False,
+                                         file_type='fastq',
                                          entropyOnly=False):
     """
     This implements the non-linear version of the read trimmer.
@@ -113,7 +119,10 @@ def calculate_read_trim_position_dynamic(read,
     The position of the substring with the maximum score is returned.
     """
     sequence = read[1]
-    phred = read[2]
+    if file_type != 'fastq':
+        phred = "H" * len(sequence)
+    else:
+        phred = read[2]
     total_length = len(read[1])
     max_begin = 0
     max_end = 0
@@ -130,6 +139,7 @@ def calculate_read_trim_position_dynamic(read,
             gamma,
             offset,
             balanced=balanced,
+            file_type=file_type,
             entropyOnly=entropyOnly)
         if t != None and not entropyOnly:
             my_score = math.exp(-i / t) * my_score
@@ -140,14 +150,65 @@ def calculate_read_trim_position_dynamic(read,
     return (max_begin, max_end + max_begin, max_score)
 
 
-def trim_read(read, alpha, beta, gamma, m, t, offset, balanced, linear,
-              entropyOnly, verbose):
+def calculate_read_trim_position_both_ends_linear(read,
+                                                  m,
+                                                  t,
+                                                  alpha,
+                                                  beta,
+                                                  gamma,
+                                                  offset,
+                                                  balanced=False,
+                                                  file_type='fastq',
+                                                  entropyOnly=False):
+    """
+    This implements the non-linear version of the read trimmer.
+    It calls the linear version for each starting position.
+    The position of the substring with the maximum score is returned.
+    """
+    sequence = read[1]
+    if file_type != 'fastq':
+        phred = "H" * len(sequence)
+    else:
+        phred = read[2]
+    total_length = len(read[1])
+    begin = 0
+    end = 0
+    score_b = float("-inf")
+    score_e = float("-inf")
+    end, score_e = calculate_read_trim_position_linear(("", sequence, phred),
+                                                       m,
+                                                       alpha,
+                                                       beta,
+                                                       gamma,
+                                                       offset,
+                                                       balanced=balanced,
+                                                       file_type=file_type,
+                                                       entropyOnly=entropyOnly)
+    begin, score_b = calculate_read_trim_position_linear(
+        ("", "".join(reversed(sequence)), "".join(reversed(phred))),
+        m,
+        alpha,
+        beta,
+        gamma,
+        offset,
+        balanced=balanced,
+        file_type=file_type,
+        entropyOnly=entropyOnly)
+    begin = len(sequence) - begin
+    if begin < end:
+        return (begin, end, (score_b + score_e) / 2)
+    else:
+        return (0, end, score_e)
+
+
+def trim_read(read, alpha, beta, gamma, m, t, offset, balanced, algorithm,
+              entropyOnly, file_type, verbose):
     """
     This function calls the functions that calculate the positions on the read to trim.
     It branches depending on whether the non-linear version is used.
     All other parameters are passed on.
     """
-    if linear:
+    if algorithm == 'linear_end':
         position, score = calculate_read_trim_position_linear(
             read,
             m,
@@ -156,14 +217,18 @@ def trim_read(read, alpha, beta, gamma, m, t, offset, balanced, linear,
             gamma,
             offset,
             balanced=balanced,
+            file_type=file_type,
             entropyOnly=entropyOnly)
         position += 1
         if verbose:
             sys.stderr.write("%s  position: %s score: %s\n" %
                              (read[0], str(position), str(score)))
             sys.stderr.flush()
-        trimmed_read = (read[0], read[1][0:position], read[2][0:position])
-    else:
+        if file_type == 'fastq':
+            trimmed_read = (read[0], read[1][0:position], read[2][0:position])
+        else:
+            trimmed_read = (read[0], read[1][0:position])
+    elif algorithm == 'dynamic':
         begin, end, score = calculate_read_trim_position_dynamic(
             read,
             m,
@@ -173,18 +238,43 @@ def trim_read(read, alpha, beta, gamma, m, t, offset, balanced, linear,
             gamma,
             offset,
             balanced=balanced,
+            file_type=file_type,
             entropyOnly=entropyOnly)
         end += 1
         if verbose:
             sys.stderr.write("%s  begin: %s end: %s score: %s\n" %
                              (read[0], str(begin), str(end), str(score)))
             sys.stderr.flush()
-        trimmed_read = (read[0], read[1][begin:end], read[2][begin:end])
+        if file_type == 'fastq':
+            trimmed_read = (read[0], read[1][begin:end], read[2][begin:end])
+        else:
+            trimmed_read = (read[0], read[1][begin:end])
+    else:
+        begin, end, score = calculate_read_trim_position_both_ends_linear(
+            read,
+            m,
+            t,
+            alpha,
+            beta,
+            gamma,
+            offset,
+            balanced=balanced,
+            file_type=file_type,
+            entropyOnly=entropyOnly)
+        end += 1
+        if verbose:
+            sys.stderr.write("%s  begin: %s end: %s score: %s\n" %
+                             (read[0], str(begin), str(end), str(score)))
+            sys.stderr.flush()
+        if file_type == 'fastq':
+            trimmed_read = (read[0], read[1][begin:end], read[2][begin:end])
+        else:
+            trimmed_read = (read[0], read[1][begin:end])
     return trimmed_read
 
 
 def trim_reads_single(reads, trimmed_output, alpha, beta, gamma, m, t, offset,
-                      balanced, linear, entropyOnly, verbose):
+                      balanced, algorithm, entropyOnly, file_type, verbose):
     """
     This is the main function that loops through the reads.
     The linear option is a boolean that selects for either the linear or the non-linear version.
@@ -195,12 +285,13 @@ def trim_reads_single(reads, trimmed_output, alpha, beta, gamma, m, t, offset,
     """
     for read in reads:
         trimmed_read = trim_read(read, alpha, beta, gamma, m, t, offset,
-                                 balanced, linear, entropyOnly, verbose)
+                                 balanced, algorithm, entropyOnly, file_type,
+                                 verbose)
         trimmed_output.write(trimmed_read)
 
 
 def trim_reads_multi(q_read, q_write, alpha, beta, gamma, m, t, offset,
-                     balanced, linear, entropyOnly, verbose):
+                     balanced, algorithm, entropyOnly, file_type, verbose):
     """
     A function for trimming reads with multiple processes.
     q_read is the queue for reading reads
@@ -216,7 +307,7 @@ def trim_reads_multi(q_read, q_write, alpha, beta, gamma, m, t, offset,
             return
         else:
             trimmed_read = trim_read(read, alpha, beta, gamma, m, t, offset,
-                                     balanced, linear, entropyOnly, verbose)
+                                     balanced, algorithm, entropyOnly, file_type, verbose)
             q_write.put(trimmed_read)
 
 
@@ -243,8 +334,9 @@ def trim_reads(input_file,
                offset=33,
                process_amount=1,
                balanced=False,
-               linear=True,
+               algorithm=True,
                entropyOnly=False,
+               file_type='fastq',
                verbose=False):
     """
     This function is the entry point into the read trimmer.  It is the function that could be called
@@ -253,16 +345,17 @@ def trim_reads(input_file,
     """
     if isinstance(output_file, str):
         output_file = open(output_file, 'w')
-    trimmed_output = SeqIterator.SeqWriter(output_file, file_type='fastq')
+    trimmed_output = SeqIterator.SeqWriter(output_file, file_type=file_type)
     if process_amount == 1:
         try:
-            reads = SeqIterator.SeqIterator(input_file, file_type='fastq')
+            reads = SeqIterator.SeqIterator(input_file, file_type=file_type)
         except IOError:
             sys.stderr.write(
                 "Something is wrong with the reads file.  Please check it.\n")
             return
         trim_reads_single(reads, trimmed_output, alpha, beta, gamma, m, t,
-                          offset, balanced, linear, entropyOnly, verbose)
+                          offset, balanced, algorithm, entropyOnly, file_type,
+                          verbose)
         read_count = reads.records_processed()
     else:
         # Need to add records to a queue for the other processes.
@@ -278,7 +371,7 @@ def trim_reads(input_file,
             proc = multiprocessing.Process(target=trim_reads_multi,
                                            args=(q_read, q_write, alpha, beta,
                                                  gamma, m, t, offset, balanced,
-                                                 linear, entropyOnly, verbose))
+                                                 algorithm, entropyOnly, file_type, verbose))
 
             processes.append(proc)
             proc.start()
@@ -308,78 +401,89 @@ def main():
     with BisPin and good results with Bismark, walt, and bwameth.
     """
     now = datetime.datetime.now()
-    usage = "usage: %prog [options] <FASTQ reads file location> "
-    version = "0.1.0"
-    p = optparse.OptionParser(usage=usage, version=version)
-    #p.add_option('--reads', '-f', help='Fastq reads file location.', default=None)
-    #     p.add_option('--pair1', '-1', help='Fastq reads file for the first mate pair.', default=None)
-    #     p.add_option('--pair2', '-2', help='Fastq reads file for the second mate pair.', default=None)
-    p.add_option('--processes',
+    usage = "usage: InfoTrim.py [args] <Reads file location> "
+    version = "0.1.1"
+    p = argparse.ArgumentParser(prog="InfoTrim", usage=usage, version=version, 
+                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    #p.add_argument('--reads', '-f', help='Fastq reads file location.', default=None)
+    #     p.add_argument('--pair1', '-1', help='Fastq reads file for the first mate pair.', default=None)
+    #     p.add_argument('--pair2', '-2', help='Fastq reads file for the second mate pair.', default=None)
+    p.add_argument('reads_file', type=str, help="The location of the fastq/fasta reads file.")
+    p.add_argument('--processes',
                  '-p',
-                 help='Number of processes to use. [default: %default]',
+                 type=int,
+                 help='Number of processes to use.',
                  default=1)
-    p.add_option('--output',
+    p.add_argument('--output',
                  '-o',
-                 help='The file name for the output file. [default: stdout]',
+                 type=str,
+                 help='The file name for the output file.',
                  default=sys.stdout)
-    p.add_option(
+    p.add_argument(
         '--phred',
         '-s',
-        help='The tradeoff value for the phred score. [default: %default]',
+        type=float,
+        help='The tradeoff value for the phred score.',
         default=0.1)
-    p.add_option(
+    p.add_argument(
         '--entropy',
         '-r',
-        help='The tradeoff value for the entropy feature. [default: %default]',
+        type=float,
+        help='The tradeoff value for the entropy feature.',
         default=0.4)
-    p.add_option('--min_length',
+    p.add_argument('--min_length',
                  '-m',
-                 help='The minimum length target. [default: %default]',
+                 type=int,
+                 help='The minimum length target.',
                  default=25)
-    p.add_option(
+    p.add_argument(
         '--start_weight',
         '-t',
+        type=float,
         help=
-        'The weight for the exponential model for the starting position of the read for the non-linear option.  If set to 0, it will not be used. [default: %default]',
+        'The weight for the exponential model for the starting position of the read for the non-linear option.  If set to 0, it will not be used.',
         default=0)
-    #p.add_option('--balanced', '-b', help='Use the geometric mean of length, correctness probability, and entropy.', action="store_true", default=False)
-    p.add_option(
-        '--non_linear',
-        '-n',
-        help=
-        'Use the non-linear approach to search for a substring that maximizes the score.',
-        action="store_true",
-        default=False)
-    #p.add_option('--entropyOnly', '-e', help='Use the dynamic programming approach.', action="store_true", default=False)
-    p.add_option(
+    #p.add_argument('--balanced', '-b', help='Use the geometric mean of length, correctness probability, and entropy.', action="store_true", default=False)
+    p.add_argument(
+        '--algorithm',
+        '-g',
+        choices=['linear_end', 'linear_both', 'dynamic'],
+        help="This chooses the trimming algorithm to use.  'linear_end' uses a linear time algorithm and trims the end only (recommended).  'linear_both' uses a linear time algorithm and trims the beginning and the ending.  'dynamic' uses a slow quadratic time algorithm that trims the ends optimally with the InfoTrim score.",
+        default='linear_end')
+    #p.add_argument('--entropyOnly', '-e', help='Use the dynamic programming approach.', action="store_true", default=False)
+    p.add_argument(
         '--ascii_offset',
         '-a',
+        type=int,
         help=
-        'The offset value for the ascii encoding of phred scores. [default: %default]',
+        'The offset value for the ascii encoding of phred scores.',
         default=33)
-    p.add_option(
+    p.add_argument('--fasta',
+                 action='store_true',
+                 help="Use this if the input file is a fasta file.",
+                 default=False)
+    p.add_argument(
         '--verbose',
-        '-v',
+        '-b',
         help='Run in verbose.  The score for each read is printed to stderr.',
         action="store_true",
         default=False)
-    options, args = p.parse_args()
-    balanced = False  #options.balanced
-    linear = not options.non_linear
-    entropyOnly = False  #options.entropyOnly
-    verbose = options.verbose
-    if len(args) == 0:
-        p.print_help()
-    if len(args) != 1:
-        p.error('Not enough arguments.  Check the usage.')
-    input_file = args[0]
+    args = p.parse_args()
+    balanced = False  #args.balanced
+    algorithm = args.algorithm
+    entropyOnly = False  #args.entropyOnly
+    verbose = args.verbose
+    input_file = args.reads_file
     if not os.path.exists(input_file):
         p.error("The reads file does not exist or could not be accessed.")
     try:
-        r = float(options.entropy)
-        s = float(options.phred)
-        m = float(options.min_length)
-        t = float(options.start_weight)
+        r = float(args.entropy)
+        s = float(args.phred)
+        m = float(args.min_length)
+        t = float(args.start_weight)
+        if args.fasta:
+            s = 0.0
+            args.phred = 0.0
         if t == 0.0 or t == 0:
             t = None
         if not balanced and not entropyOnly:
@@ -402,18 +506,18 @@ def main():
             gamma = None
     except ValueError:
         sys.stderr.write(
-            "One of the parameters r, s, m, or t  was not set to a number.\n")
+            "One of the parameters r, s, m, or t was not set to a number.\n")
         sys.stderr.flush()
         return
     try:
-        offset = int(options.ascii_offset)
+        offset = int(args.ascii_offset)
     except ValueError:
         sys.stderr.write("The ascii offset must be an integer.\n")
         return
     if input_file == None:
         p.print_help()
         sys.exit(1)
-    output_file = options.output
+    output_file = args.output
     output_file_string = "stdout"
     if not (output_file == sys.stdout):
         try:
@@ -425,7 +529,7 @@ def main():
             )
             return
     try:
-        process_amount = int(options.processes)
+        process_amount = int(args.processes)
     except ValueError:
         sys.stderr.write("The number of processes should be an integer.\n")
         return
@@ -434,10 +538,11 @@ def main():
     sys.stderr.write("Current time: " + str(now) + " \n")
     sys.stderr.write("Writing output to file '" + output_file_string + "'.\n")
     sys.stderr.write("Using the following arguments.\n")
-    sys.stderr.write(
-        "r=%s s=%s m=%s t=%s processes=%s ascii_offset=%s, balanced=%s linear=%s entropyOnly=%s verbose=%s\n"
-        % (str(r), str(s), str(m), str(t), str(process_amount), str(offset),
-           str(balanced), str(linear), str(entropyOnly), str(verbose)))
+    sys.stderr.write(str(args) + "\n")
+    #     sys.stderr.write(
+    #         "r=%s s=%s m=%s t=%s processes=%s ascii_offset=%s, balanced=%s linear=%s entropyOnly=%s verbose=%s\n"
+    #         % (str(r), str(s), str(m), str(t), str(process_amount), str(offset),
+    #            str(balanced), str(linear), str(entropyOnly), str(verbose)))
     sys.stderr.flush()
     read_count = trim_reads(input_file,
                             output_file,
@@ -449,8 +554,9 @@ def main():
                             offset=offset,
                             process_amount=process_amount,
                             balanced=balanced,
-                            linear=linear,
+                            algorithm=args.algorithm,
                             entropyOnly=entropyOnly,
+                            file_type='fasta' if args.fasta else 'fastq',
                             verbose=verbose)
     sys.stderr.write("Finished trimming the reads.  There were " +
                      str(read_count) + " reads processed.\n")
