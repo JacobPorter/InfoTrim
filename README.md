@@ -1,6 +1,7 @@
 # InfoTrim
 
 InfoTrim is a DNA read quality trimmer based on the Trimmomatic maximum information criterion model.  It adds an entropy term.
+It works in both Python 2.7 and Python 3.X.  It is pure Python, so there is no pip installation.
 
 If cited, use 
 
