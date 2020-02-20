@@ -50,13 +50,16 @@ Options:
                         position of the read for the non-linear option.  If
                         set to 0, it will not be used. [default: 0]
                         
-  -n, --non_linear      Use the non-linear approach to search for a substring
-                        that maximizes the score.
-                        
+  -g, --algorithm      Select the algorithm. Use a linear algorithm that trims only the end.
+			Or, a linear algorithm that trims both ends.
+			Or, a quadratic time algorithm that trims both ends in a way that is optimal to InfoTrims scoring function.
+ 
   -a ASCII_OFFSET, --ascii_offset=ASCII_OFFSET
                         The offset value for the ascii encoding of phred
                         scores. [default: 33]
                         
-  -v, --verbose         Run in verbose.  The score for each read is printed to
+  --fasta  Set this switch if the input file is a fasta file.
+
+  -b, --verbose         Run in verbose.  The score for each read is printed to
                         stderr.
 
